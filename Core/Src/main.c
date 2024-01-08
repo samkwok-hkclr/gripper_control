@@ -51,7 +51,7 @@ const uint16_t LEFT_SIGN = 5; // not used
 const uint16_t RIGHT_SIGN = 5; // not used
 const uint16_t TIMEOUT_THD = 30; // timeout: 600ms
 
-uint16_t sensor_states[3] = {0, 0, 0};
+uint8_t sensor_states[3] = {0, 0, 0};
 uint16_t time_lapse[4] = {0, 0, 0, 0};
 uint16_t wrong_command[4] = {0, 0, 0, 0};
 uint16_t left_moving = 0;
@@ -134,6 +134,7 @@ int main(void)
     /* USER CODE BEGIN 3 */
 	  HAL_Delay(800);
 	  HAL_IWDG_Refresh(&hiwdg);
+
   }
   /* USER CODE END 3 */
 }
@@ -313,11 +314,22 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 	}
 	else if (uart_receive == 3) //read sensors info
 	{
-		sensor_states[0]= HAL_GPIO_ReadPin(Forward_Left_GPIO_Port, Forward_Left_Pin);
-		sensor_states[1]= HAL_GPIO_ReadPin(Forward_Right_GPIO_Port, Forward_Right_Pin);
-		sensor_states[2]= HAL_GPIO_ReadPin(Through_Sensor_GPIO_Port, Through_Sensor_Pin);
+		if (HAL_GPIO_ReadPin(Forward_Left_GPIO_Port, Forward_Left_Pin) == GPIO_PIN_RESET)
+			sensor_states[0] = 1;
+		else
+			sensor_states[0] = 0;
+
+		if (HAL_GPIO_ReadPin(Forward_Right_GPIO_Port, Forward_Right_Pin) == GPIO_PIN_RESET)
+			sensor_states[1] = 1;
+		else
+			sensor_states[1] = 0;
+
+		if (HAL_GPIO_ReadPin(Through_Sensor_GPIO_Port, Through_Sensor_Pin) == GPIO_PIN_RESET)
+			sensor_states[2] = 1;
+		else
+			sensor_states[2] = 0;
 		//enable receive interrupt for next serial input
-		HAL_UART_Transmit(&huart1, (uint8_t*) &sensor_states, 6, 100); // 0xFFFF
+		HAL_UART_Transmit(&huart1, (uint8_t*) &sensor_states, sizeof(sensor_states), 100); // 0xFFFF
 		HAL_UART_Receive_IT(&huart1, &uart_receive, 1);
 	}
 	else
