@@ -276,32 +276,31 @@ void MX_IWDG_Init(void)
  8000284:	4b09      	ldr	r3, [pc, #36]	; (80002ac <MX_IWDG_Init+0x2c>)
  8000286:	4a0a      	ldr	r2, [pc, #40]	; (80002b0 <MX_IWDG_Init+0x30>)
  8000288:	601a      	str	r2, [r3, #0]
-  hiwdg.Init.Prescaler = IWDG_PRESCALER_256;
+  hiwdg.Init.Prescaler = IWDG_PRESCALER_16;
  800028a:	4b08      	ldr	r3, [pc, #32]	; (80002ac <MX_IWDG_Init+0x2c>)
- 800028c:	2206      	movs	r2, #6
+ 800028c:	2202      	movs	r2, #2
  800028e:	605a      	str	r2, [r3, #4]
-  hiwdg.Init.Reload = 125-1;
+  hiwdg.Init.Reload = 2500-1;
  8000290:	4b06      	ldr	r3, [pc, #24]	; (80002ac <MX_IWDG_Init+0x2c>)
- 8000292:	227c      	movs	r2, #124	; 0x7c
- 8000294:	609a      	str	r2, [r3, #8]
+ 8000292:	f640 12c3 	movw	r2, #2499	; 0x9c3
+ 8000296:	609a      	str	r2, [r3, #8]
   if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
- 8000296:	4805      	ldr	r0, [pc, #20]	; (80002ac <MX_IWDG_Init+0x2c>)
- 8000298:	f001 fa06 	bl	80016a8 <HAL_IWDG_Init>
- 800029c:	4603      	mov	r3, r0
- 800029e:	2b00      	cmp	r3, #0
- 80002a0:	d001      	beq.n	80002a6 <MX_IWDG_Init+0x26>
+ 8000298:	4804      	ldr	r0, [pc, #16]	; (80002ac <MX_IWDG_Init+0x2c>)
+ 800029a:	f001 fa05 	bl	80016a8 <HAL_IWDG_Init>
+ 800029e:	4603      	mov	r3, r0
+ 80002a0:	2b00      	cmp	r3, #0
+ 80002a2:	d001      	beq.n	80002a8 <MX_IWDG_Init+0x28>
   {
     Error_Handler();
- 80002a2:	f000 fab5 	bl	8000810 <Error_Handler>
+ 80002a4:	f000 fab4 	bl	8000810 <Error_Handler>
   }
   /* USER CODE BEGIN IWDG_Init 2 */
 
   /* USER CODE END IWDG_Init 2 */
 
 }
- 80002a6:	bf00      	nop
- 80002a8:	bd80      	pop	{r7, pc}
- 80002aa:	bf00      	nop
+ 80002a8:	bf00      	nop
+ 80002aa:	bd80      	pop	{r7, pc}
  80002ac:	20000030 	.word	0x20000030
  80002b0:	40003000 	.word	0x40003000
 
