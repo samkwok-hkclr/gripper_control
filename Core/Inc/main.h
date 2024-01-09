@@ -81,6 +81,7 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN Private defines */
 
+uint16_t calc_duty_cycle(const uint16_t diff);
 void set_duty_cycle(const uint16_t left_value, const uint16_t right_value);
 void init_values();
 

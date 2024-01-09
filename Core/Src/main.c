@@ -46,10 +46,18 @@
 
 /* USER CODE BEGIN PV */
 
-// finish signs: check every 20ms
-const uint16_t LEFT_SIGN = 5; // not used
-const uint16_t RIGHT_SIGN = 5; // not used
-const uint16_t TIMEOUT_THD = 30; // timeout: 600ms
+// Stopping criteria: check every 20ms
+// const uint16_t LEFT_SIGN = 11; // not used
+// const uint16_t RIGHT_SIGN = 11; // not used
+const uint16_t TIMEOUT_THD = 50; // timeout: 1000ms
+
+// uint16_t y = 0; // for debugging only
+const uint16_t FULL_DUTY_CYCLE = 100;
+const uint16_t DUTY_CYCLE_UPPER_BOUND = 30;
+const uint16_t DUTY_CYCLE_LOWER_BOUND = 95;
+const uint16_t MAX_DIFF = 10;
+uint16_t left_duty_cycle = 50; // Initial duty cycle
+uint16_t right_duty_cycle = 50; // Initial duty cycle
 
 uint8_t sensor_states[3] = {0, 0, 0};
 uint16_t time_lapse[4] = {0, 0, 0, 0};
@@ -64,10 +72,6 @@ uint16_t right_counter_prev = 0;
 uint16_t right_counter_now = 200;
 uint16_t finger_move_timeout_count = 0;
 uint8_t uart_receive = 0;
-
-const uint16_t FULL_DUTY_CYCLE = 100;
-uint16_t left_duty_cycle = 90;
-uint16_t right_duty_cycle = 90;
 
 /* USER CODE END PV */
 
@@ -181,6 +185,32 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
+inline uint16_t calc_duty_cycle(const uint16_t x)
+{
+	// if x > diff_max, then y = DUTY_CYCLE_UPPER_BOUND
+	// if x < 0, then y = DUTY_CYCLE_LOWER_BOUND
+	// y = (D_upper - D_lower) / diff_max * x + DUTY_CYCLE_UPPER_BOUND
+
+	uint16_t y = 0;
+
+	if (x > MAX_DIFF)
+		y = DUTY_CYCLE_UPPER_BOUND;
+	else if (x < 0)
+		y = DUTY_CYCLE_LOWER_BOUND;
+	else
+	{
+		uint16_t temp = (DUTY_CYCLE_UPPER_BOUND - DUTY_CYCLE_LOWER_BOUND) / MAX_DIFF * x + DUTY_CYCLE_LOWER_BOUND;
+		if (temp > DUTY_CYCLE_LOWER_BOUND)
+			y = DUTY_CYCLE_LOWER_BOUND;
+		else if (temp < DUTY_CYCLE_UPPER_BOUND)
+			y = DUTY_CYCLE_UPPER_BOUND;
+		else
+			y = temp;
+	}
+
+	return y;
+}
+
 inline void set_duty_cycle(const uint16_t left_value, const uint16_t right_value)
 {
 	htim2.Instance->CCR1 = left_value;
@@ -201,7 +231,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	if (htim == (&htim4))
 	{
-		// This stopping criteria is unstable.
+		// This stopping criteria is unstable for our situation.
 //		if (left_moving == 1 && ((left_counter_now - left_counter_prev) < LEFT_SIGN))
 //		{
 //			set_duty_cycle(FULL_DUTY_CYCLE, htim3.Instance->CCR1);
@@ -223,6 +253,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 //			right_count += 1;
 //			right_counter_prev = right_counter_now;
 //		}
+		if (left_moving == 1)
+		{
+			set_duty_cycle(calc_duty_cycle(left_counter_now - left_counter_prev), htim3.Instance->CCR1);
+			left_count += 1;
+			left_counter_prev = left_counter_now;
+		}
+
+		if (right_moving == 1)
+		{
+			set_duty_cycle(htim2.Instance->CCR1, calc_duty_cycle(right_counter_now - right_counter_prev));
+			right_count += 1;
+			right_counter_prev = right_counter_now;
+		}
 
 		finger_move_timeout_count += 1;
 		if (finger_move_timeout_count > TIMEOUT_THD)
