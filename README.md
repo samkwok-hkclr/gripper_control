@@ -5,7 +5,7 @@
 * Use 8 MHz High Speed External (HSE) clock
 
 
-# GPIO
+# GPIO Configuration
 * PA1:
   * User Label: Left_Direction
   * GPIO output level: Low
