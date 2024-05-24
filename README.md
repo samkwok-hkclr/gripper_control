@@ -19,7 +19,7 @@
   * GPIO Pull-up/Pull-down: No pull-up and pull-down
   * Maximum output speed: Low
 * PC15:
-  * User Label: Left_Direction
+  * User Label: Right_Direction
   * GPIO output level: Low
   * GPIO mode: Output Push Pull
   * GPIO Pull-up/Pull-down: No pull-up and pull-down
@@ -28,11 +28,19 @@
 # Timer Configuration
 * TIM2
   * PWM Channel 1
+  	* PA0
+    * Left Speed Control
   * PWM Channel 3
+  	* PB10
+    * Right Speed Control
   * Frequency: 20 kHz
 * TIM3
-  * PWM Channel 1: Input Capture
-  * PWM Channel 2: Input Capture
+  * Channel 1: Input Capture
+  	* PA6
+    * Right Feedback
+  * Channel 2: Input Capture
+  	* PA7
+    * Left Feedback  
 * TIM4
   * Frequency: 50 Hz
 
