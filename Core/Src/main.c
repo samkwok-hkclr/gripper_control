@@ -85,8 +85,6 @@ uint8_t uart_recv = 0;
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
-//void set_tim3_mode(void);
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -321,7 +319,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		// start timer to check finish signs
 		HAL_TIM_Base_Start_IT(&htim4);
 	}
-
 	else if (uart_recv == 2) //make finger horizon
 	{
 		// set two finger rotate direction
