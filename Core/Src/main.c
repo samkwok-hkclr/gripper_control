@@ -15,6 +15,9 @@
   *
   ******************************************************************************
   */
+
+#include "stdbool.h"
+
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -47,37 +50,42 @@
 /* USER CODE BEGIN PV */
 
 // Stopping criteria: check every 20ms
-// const uint16_t LEFT_SIGN = 11; // not used
-// const uint16_t RIGHT_SIGN = 11; // not used
-const uint16_t TIMEOUT_THD = 50; // timeout: 1000ms
+const uint16_t EXECUTION_TIMEOUT = 50 - 1; // timeout: 1000ms
 
-// uint16_t y = 0; // for debugging only
+uint32_t running = 0;
+
 const uint16_t FULL_DUTY_CYCLE = 100;
-const uint16_t DUTY_CYCLE_UPPER_BOUND = 30;
-const uint16_t DUTY_CYCLE_LOWER_BOUND = 95;
+const uint16_t DUTY_CYCLE_UPPER_BOUND = 55;
+const uint16_t DUTY_CYCLE_LOWER_BOUND = 85;
 const uint16_t MAX_DIFF = 10;
-uint16_t left_duty_cycle = 50; // Initial duty cycle
-uint16_t right_duty_cycle = 50; // Initial duty cycle
+const uint16_t MIN_DIFF_PER_CYCLE = 2;
+
+uint16_t left_duty_cycle = 55; // Initial duty cycle
+uint16_t right_duty_cycle = 55; // Initial duty cycle
 
 uint8_t sensor_states[3] = {0, 0, 0};
-uint16_t time_lapse[4] = {0, 0, 0, 0};
+uint8_t resp[8] = {0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE};
 uint16_t wrong_command[4] = {0, 0, 0, 0};
-uint16_t left_moving = 0;
-uint16_t right_moving = 0;
-uint16_t left_count = 0;
-uint16_t right_count = 0;
-uint16_t left_counter_prev = 0;
-uint16_t left_counter_now = 200;
-uint16_t right_counter_prev = 0;
-uint16_t right_counter_now = 200;
-uint16_t finger_move_timeout_count = 0;
-uint8_t uart_receive = 0;
+bool left_enabled = false;
+bool right_enabled = false;
+uint16_t left_steps_diff = 0;
+uint16_t left_steps_sum = 0;
+uint16_t right_steps_diff = 0;
+uint16_t right_steps_sum = 0;
+uint16_t left_period_cnt = 0;
+uint16_t right_period_cnt = 0;
+uint16_t left_cycle = 0;
+uint16_t right_cycle = 0;
+uint16_t execution_time_cnt = 0;
+uint8_t uart_recv = 0;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
+
+//void set_tim3_mode(void);
 
 /* USER CODE END PFP */
 
@@ -121,11 +129,13 @@ int main(void)
   MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
 
-  HAL_UART_Receive_IT(&huart1, &uart_receive, 1);
+  HAL_UART_Receive_IT(&huart1, &uart_recv, 1);
 
   set_duty_cycle(FULL_DUTY_CYCLE, FULL_DUTY_CYCLE);
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1 | TIM_CHANNEL_3);
+
+  HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_2);
 
   /* USER CODE END 2 */
 
@@ -136,9 +146,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  running++;
 	  HAL_Delay(800);
 	  HAL_IWDG_Refresh(&hiwdg);
-
   }
   /* USER CODE END 3 */
 }
@@ -191,22 +201,17 @@ inline uint16_t calc_duty_cycle(const uint16_t x)
 	// if x < 0, then y = DUTY_CYCLE_LOWER_BOUND
 	// y = (D_upper - D_lower) / diff_max * x + DUTY_CYCLE_UPPER_BOUND
 
-	uint16_t y = 0;
-
 	if (x > MAX_DIFF)
-		y = DUTY_CYCLE_UPPER_BOUND;
+		return DUTY_CYCLE_UPPER_BOUND;
 	else if (x < 0)
-		y = DUTY_CYCLE_LOWER_BOUND;
-	else
-	{
-		uint16_t temp = (DUTY_CYCLE_UPPER_BOUND - DUTY_CYCLE_LOWER_BOUND) / MAX_DIFF * x + DUTY_CYCLE_LOWER_BOUND;
-		if (temp > DUTY_CYCLE_LOWER_BOUND)
-			y = DUTY_CYCLE_LOWER_BOUND;
-		else if (temp < DUTY_CYCLE_UPPER_BOUND)
-			y = DUTY_CYCLE_UPPER_BOUND;
-		else
-			y = temp;
-	}
+		return DUTY_CYCLE_LOWER_BOUND;
+
+	uint16_t y = (DUTY_CYCLE_UPPER_BOUND - DUTY_CYCLE_LOWER_BOUND) / MAX_DIFF * x + DUTY_CYCLE_LOWER_BOUND;
+
+	if (y > DUTY_CYCLE_LOWER_BOUND)
+		return DUTY_CYCLE_LOWER_BOUND;
+	else if (y < DUTY_CYCLE_UPPER_BOUND)
+		return DUTY_CYCLE_UPPER_BOUND;
 
 	return y;
 }
@@ -214,172 +219,140 @@ inline uint16_t calc_duty_cycle(const uint16_t x)
 inline void set_duty_cycle(const uint16_t left_value, const uint16_t right_value)
 {
 	htim2.Instance->CCR1 = left_value;
-	htim3.Instance->CCR1 = right_value;
+	htim2.Instance->CCR3 = right_value;
 }
 
 inline void init_values()
 {
-	left_counter_now = 200;
-	left_counter_prev = 0;
-	right_counter_now = 200;
-	right_counter_prev = 0;
-	left_count = 0;
-	right_count = 0;
+	left_steps_sum = 0;
+	left_steps_diff = 0;
+	right_steps_sum = 0;
+	right_steps_diff = 0;
+	left_period_cnt = 0;
+	right_period_cnt = 0;
+	execution_time_cnt = 0;
+}
+
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+{
+	if (left_enabled && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
+	{
+		left_steps_sum += 1;
+		left_steps_diff += 1;
+	}
+	if (right_enabled && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+	{
+		right_steps_sum += 1;
+		right_steps_diff += 1;
+	}
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
+
 	if (htim == (&htim4))
 	{
-		// This stopping criteria is unstable for our situation.
-//		if (left_moving == 1 && ((left_counter_now - left_counter_prev) < LEFT_SIGN))
-//		{
-//			set_duty_cycle(FULL_DUTY_CYCLE, htim3.Instance->CCR1);
-//			left_moving = 0;
-//		}
-//		else if (left_moving == 1)
-//		{
-//			left_count += 1;
-//			left_counter_prev = left_counter_now;
-//		}
-
-//		if (right_moving == 1 && ((right_counter_now - right_counter_prev) < RIGHT_SIGN))
-//		{
-//			set_duty_cycle(htim2.Instance->CCR1, FULL_DUTY_CYCLE);
-//			right_moving = 0;
-//		}
-//		else if (right_moving == 1)
-//		{
-//			right_count += 1;
-//			right_counter_prev = right_counter_now;
-//		}
-		if (left_moving == 1)
+		if (execution_time_cnt > 1)
 		{
-			set_duty_cycle(calc_duty_cycle(left_counter_now - left_counter_prev), htim3.Instance->CCR1);
-			left_count += 1;
-			left_counter_prev = left_counter_now;
+//			left_cycle = left_enabled ? calc_duty_cycle(left_steps_diff) : FULL_DUTY_CYCLE;
+			left_cycle = left_enabled ? calc_duty_cycle(left_steps_diff) - 3 : FULL_DUTY_CYCLE;
+			right_cycle = right_enabled ? calc_duty_cycle(right_steps_diff) : FULL_DUTY_CYCLE;
+			set_duty_cycle(left_cycle, right_cycle);
+
+			left_enabled = left_steps_diff > MIN_DIFF_PER_CYCLE;
+			right_enabled = right_steps_diff > MIN_DIFF_PER_CYCLE;
 		}
 
-		if (right_moving == 1)
+		if ((execution_time_cnt > EXECUTION_TIMEOUT) || (!left_enabled && !right_enabled))
 		{
-			set_duty_cycle(htim2.Instance->CCR1, calc_duty_cycle(right_counter_now - right_counter_prev));
-			right_count += 1;
-			right_counter_prev = right_counter_now;
-		}
-
-		finger_move_timeout_count += 1;
-		if (finger_move_timeout_count > TIMEOUT_THD)
-		{
+			// stop motors
+			left_enabled = false;
+			right_enabled = false;
 			set_duty_cycle(FULL_DUTY_CYCLE, FULL_DUTY_CYCLE);
-			time_lapse[0] = left_count;
-			time_lapse[1] = right_count;
-			time_lapse[2] = left_counter_now;
-			time_lapse[3] = right_counter_now;
 
-			init_values();
+			// |   0-1   |   2-3   |   4   |   5   |   6-7   |
+			// | l_steps | r_steps |  l/r_mv_flag  | tim_cnt |
+			resp[0] = (uint8_t)(left_steps_sum & 0x00FF);
+			resp[1] = (uint8_t)((left_steps_sum & 0xFF00) >> 8);
+			resp[2] = (uint8_t)(right_steps_sum & 0x00FF);
+			resp[3] = (uint8_t)((right_steps_sum & 0xFF00) >> 8);
+			resp[4] = (uint8_t)left_steps_diff;
+			resp[5] = (uint8_t)right_steps_diff;
 
-			left_count = 0;
-			right_count = 0;
-			HAL_TIM_Base_Stop_IT(&htim4);
-			finger_move_timeout_count = 0;
-			HAL_UART_Transmit(&huart1, (uint8_t*) &time_lapse, 8, 100); // 0xFFFF
-			HAL_UART_Receive_IT(&huart1, &uart_receive, 1);
-		}
-		else if (right_moving == 0 && left_moving == 0)
-		{
-			time_lapse[0] = left_count;
-			time_lapse[1] = right_count;
-			time_lapse[2] = left_counter_now;
-			time_lapse[3] = right_counter_now;
+			resp[6] = (uint8_t)(execution_time_cnt & 0x00FF);
+			resp[7] = (uint8_t)((execution_time_cnt & 0xFF00) >> 8);
 
 			init_values();
 
 			HAL_TIM_Base_Stop_IT(&htim4);
-			finger_move_timeout_count = 0;
-			HAL_UART_Transmit(&huart1, (uint8_t*) &time_lapse, 8, 100); // 0xFFFF
-			HAL_UART_Receive_IT(&huart1, &uart_receive, 1);
+			HAL_UART_Transmit(&huart1, (uint8_t*)&resp, 8, 0xFFFF);
+			HAL_UART_Receive_IT(&huart1, &uart_recv, 1);
 		}
-	}
-}
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-	if (GPIO_Pin == Left_Feedback_Pin)
-	{
-		if (left_moving == 1)
-		{
-			left_counter_now += 1;
-		}
-	}
-	else if (GPIO_Pin == Right_Feedback_Pin)
-	{
-		if (right_moving == 1)
-		{
-			right_counter_now += 1;
-		}
+		execution_time_cnt += 1;
+
+		left_steps_diff = 0;
+		right_steps_diff = 0;
 	}
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 	HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-	if (uart_receive == 0)
+
+	if (uart_recv == 0)
 	{
 		set_duty_cycle(FULL_DUTY_CYCLE, FULL_DUTY_CYCLE);
-		HAL_UART_Receive_IT(&huart1, &uart_receive, 1);
+		HAL_UART_Receive_IT(&huart1, &uart_recv, 1);
 	}
-	else if (uart_receive == 1) //make finger vertical
+	else if (uart_recv == 1) //make finger vertical
 	{
 		// set two finger rotate direction
+		init_values();
 		HAL_GPIO_WritePin(Left_Direction_GPIO_Port, Left_Direction_Pin, GPIO_PIN_RESET);
 		HAL_GPIO_WritePin(Right_Direction_GPIO_Port, Right_Direction_Pin, GPIO_PIN_SET);
-		// start rotating...
-		set_duty_cycle(left_duty_cycle, right_duty_cycle);
+
 		// set moving flags
-		left_moving = 1;
-		right_moving = 1;
+		left_enabled = true;
+		right_enabled = true;
+		// start rotating...
+		set_duty_cycle(DUTY_CYCLE_UPPER_BOUND, DUTY_CYCLE_UPPER_BOUND);
+
 		// start timer to check finish signs
 		HAL_TIM_Base_Start_IT(&htim4);
 	}
 
-	else if (uart_receive == 2) //make finger horizon
+	else if (uart_recv == 2) //make finger horizon
 	{
 		// set two finger rotate direction
+		init_values();
 		HAL_GPIO_WritePin(Left_Direction_GPIO_Port, Left_Direction_Pin, GPIO_PIN_SET);
 		HAL_GPIO_WritePin(Right_Direction_GPIO_Port, Right_Direction_Pin, GPIO_PIN_RESET);
-		// start rotating...
-		set_duty_cycle(left_duty_cycle, right_duty_cycle);
+
 		// set moving flags
-		left_moving = 1;
-		right_moving = 1;
+		left_enabled = true;
+		right_enabled = true;
+		// start rotating...
+		set_duty_cycle(DUTY_CYCLE_UPPER_BOUND, DUTY_CYCLE_UPPER_BOUND);
+
 		// start timer to check finish signs
 		HAL_TIM_Base_Start_IT(&htim4);
 	}
-	else if (uart_receive == 3) //read sensors info
+	else if (uart_recv == 3) //read sensors info
 	{
-		if (HAL_GPIO_ReadPin(Forward_Left_GPIO_Port, Forward_Left_Pin) == GPIO_PIN_RESET)
-			sensor_states[0] = 1;
-		else
-			sensor_states[0] = 0;
+		sensor_states[0]= (uint8_t)HAL_GPIO_ReadPin(Through_Sensor_GPIO_Port, Through_Sensor_Pin);
+		sensor_states[1]= (uint8_t)HAL_GPIO_ReadPin(Forward_Left_GPIO_Port, Forward_Left_Pin);
+		sensor_states[2]= (uint8_t)HAL_GPIO_ReadPin(Forward_Right_GPIO_Port, Forward_Right_Pin);
 
-		if (HAL_GPIO_ReadPin(Forward_Right_GPIO_Port, Forward_Right_Pin) == GPIO_PIN_RESET)
-			sensor_states[1] = 1;
-		else
-			sensor_states[1] = 0;
-
-		if (HAL_GPIO_ReadPin(Through_Sensor_GPIO_Port, Through_Sensor_Pin) == GPIO_PIN_RESET)
-			sensor_states[2] = 1;
-		else
-			sensor_states[2] = 0;
 		//enable receive interrupt for next serial input
-		HAL_UART_Transmit(&huart1, (uint8_t*) &sensor_states, sizeof(sensor_states), 100); // 0xFFFF
-		HAL_UART_Receive_IT(&huart1, &uart_receive, 1);
+		HAL_UART_Transmit(&huart1, sensor_states, 3, 0xFFFF);
+		HAL_UART_Receive_IT(&huart1, &uart_recv, 1);
 	}
 	else
 	{
 		//enable receive interrupt for next serial input
 		HAL_UART_Transmit(&huart1, (uint8_t*) &wrong_command, 8, 100); // 0xFFFF
-		HAL_UART_Receive_IT(&huart1, &uart_receive, 1);
+		HAL_UART_Receive_IT(&huart1, &uart_recv, 1);
 	}
 }
 

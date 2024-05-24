@@ -62,16 +62,16 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define LED_Pin GPIO_PIN_13
 #define LED_GPIO_Port GPIOC
-#define Left_Direction_Pin GPIO_PIN_1
-#define Left_Direction_GPIO_Port GPIOA
-#define Right_Direction_Pin GPIO_PIN_7
-#define Right_Direction_GPIO_Port GPIOA
+#define Left_Direction_Pin GPIO_PIN_14
+#define Left_Direction_GPIO_Port GPIOC
+#define Right_Direction_Pin GPIO_PIN_15
+#define Right_Direction_GPIO_Port GPIOC
+#define Right_Feedback_Pin GPIO_PIN_1
+#define Right_Feedback_GPIO_Port GPIOA
+#define Right_Feedback_EXTI_IRQn EXTI1_IRQn
 #define Left_Feedback_Pin GPIO_PIN_0
 #define Left_Feedback_GPIO_Port GPIOB
 #define Left_Feedback_EXTI_IRQn EXTI0_IRQn
-#define Right_Feedback_Pin GPIO_PIN_1
-#define Right_Feedback_GPIO_Port GPIOB
-#define Right_Feedback_EXTI_IRQn EXTI1_IRQn
 #define Forward_Right_Pin GPIO_PIN_12
 #define Forward_Right_GPIO_Port GPIOB
 #define Forward_Left_Pin GPIO_PIN_13
