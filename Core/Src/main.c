@@ -34,6 +34,11 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+enum STATE
+{
+	CAP_RISING, CAP_FALLING
+};
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -53,6 +58,8 @@
 const uint16_t EXECUTION_TIMEOUT = 50 - 1; // timeout: 1000ms
 
 uint32_t running = 0;
+const float TARGET_ANGLE = 90.0f;
+const float MARGIN = 1.05f;
 
 const uint16_t FULL_DUTY_CYCLE = 100;
 const uint16_t DUTY_CYCLE_UPPER_BOUND = 55;
@@ -78,6 +85,9 @@ uint16_t left_cycle = 0;
 uint16_t right_cycle = 0;
 uint16_t execution_time_cnt = 0;
 uint8_t uart_recv = 0;
+
+enum STATE left_state = CAP_RISING;
+enum STATE right_state = CAP_RISING;
 
 /* USER CODE END PV */
 
@@ -131,9 +141,6 @@ int main(void)
 
   set_duty_cycle(FULL_DUTY_CYCLE, FULL_DUTY_CYCLE);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1 | TIM_CHANNEL_3);
-
-  HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_1);
-  HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_2);
 
   /* USER CODE END 2 */
 
@@ -229,25 +236,58 @@ inline void init_values()
 	left_period_cnt = 0;
 	right_period_cnt = 0;
 	execution_time_cnt = 0;
+
+	left_state = CAP_RISING;
+	right_state = CAP_RISING;
+}
+
+inline float step2deg(uint16_t steps)
+{
+	return (float) steps / (6000.0f * 9.0f / 68.0f) * 360.0f;
 }
 
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
 	if (left_enabled && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
 	{
-		left_steps_sum += 1;
-		left_steps_diff += 1;
+		switch(left_state)
+		{
+			case CAP_RISING:
+				TIM_RESET_CAPTUREPOLARITY(&htim3, TIM_CHANNEL_2);
+				__HAL_TIM_SET_CAPTUREPOLARITY(&htim3, TIM_CHANNEL_2, TIM_INPUTCHANNELPOLARITY_FALLING);
+				left_state = CAP_FALLING;
+				break;
+			case CAP_FALLING:
+				TIM_RESET_CAPTUREPOLARITY(&htim3, TIM_CHANNEL_2);
+				__HAL_TIM_SET_CAPTUREPOLARITY(&htim3, TIM_CHANNEL_2, TIM_INPUTCHANNELPOLARITY_RISING);
+				left_steps_sum += 1;
+				left_steps_diff += 1;
+				left_state = CAP_RISING;
+				break;
+		}
 	}
 	if (right_enabled && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
 	{
-		right_steps_sum += 1;
-		right_steps_diff += 1;
+		switch(right_state)
+		{
+			case CAP_RISING:
+				TIM_RESET_CAPTUREPOLARITY(&htim3, TIM_CHANNEL_1);
+				__HAL_TIM_SET_CAPTUREPOLARITY(&htim3, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_FALLING);
+				right_state = CAP_FALLING;
+				break;
+			case CAP_FALLING:
+				TIM_RESET_CAPTUREPOLARITY(&htim3, TIM_CHANNEL_1);
+				__HAL_TIM_SET_CAPTUREPOLARITY(&htim3, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
+				right_steps_sum += 1;
+				right_steps_diff += 1;
+				right_state = CAP_RISING;
+				break;
+		}
 	}
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-
 	if (htim == (&htim4))
 	{
 		if (execution_time_cnt > 1)
@@ -257,8 +297,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			right_cycle = right_enabled ? calc_duty_cycle(right_steps_diff) : FULL_DUTY_CYCLE;
 			set_duty_cycle(left_cycle, right_cycle);
 
-			left_enabled = left_steps_diff > MIN_DIFF_PER_CYCLE;
-			right_enabled = right_steps_diff > MIN_DIFF_PER_CYCLE;
+			left_enabled = left_steps_diff > MIN_DIFF_PER_CYCLE ||
+						   TARGET_ANGLE * MARGIN - step2deg(left_steps_sum) > 0.0;
+			right_enabled = right_steps_diff > MIN_DIFF_PER_CYCLE ||
+						   TARGET_ANGLE * MARGIN - step2deg(right_steps_sum) > 0.0;
 		}
 
 		if ((execution_time_cnt > EXECUTION_TIMEOUT) || (!left_enabled && !right_enabled))
@@ -267,6 +309,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			left_enabled = false;
 			right_enabled = false;
 			set_duty_cycle(FULL_DUTY_CYCLE, FULL_DUTY_CYCLE);
+
+			// stop capture feedback
+			HAL_TIM_IC_Stop_IT(&htim3, TIM_CHANNEL_1);
+			HAL_TIM_IC_Stop_IT(&htim3, TIM_CHANNEL_2);
 
 			// |   0-1   |   2-3   |   4   |   5   |   6-7   |
 			// | l_steps | r_steps |  l/r_mv_flag  | tim_cnt |
@@ -310,9 +356,14 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		HAL_GPIO_WritePin(Left_Direction_GPIO_Port, Left_Direction_Pin, GPIO_PIN_RESET);
 		HAL_GPIO_WritePin(Right_Direction_GPIO_Port, Right_Direction_Pin, GPIO_PIN_SET);
 
+		// start capture feedback
+		HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_1);
+		HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_2);
+
 		// set moving flags
 		left_enabled = true;
 		right_enabled = true;
+
 		// start rotating...
 		set_duty_cycle(DUTY_CYCLE_UPPER_BOUND, DUTY_CYCLE_UPPER_BOUND);
 
@@ -326,9 +377,14 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		HAL_GPIO_WritePin(Left_Direction_GPIO_Port, Left_Direction_Pin, GPIO_PIN_SET);
 		HAL_GPIO_WritePin(Right_Direction_GPIO_Port, Right_Direction_Pin, GPIO_PIN_RESET);
 
+		// start capture feedback
+		HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_1);
+		HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_2);
+
 		// set moving flags
 		left_enabled = true;
 		right_enabled = true;
+
 		// start rotating...
 		set_duty_cycle(DUTY_CYCLE_UPPER_BOUND, DUTY_CYCLE_UPPER_BOUND);
 

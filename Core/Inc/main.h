@@ -79,6 +79,8 @@ uint16_t calc_duty_cycle(const uint16_t x);
 void set_duty_cycle(const uint16_t left_value, const uint16_t right_value);
 void init_values();
 
+float step2deg(uint16_t steps);
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
